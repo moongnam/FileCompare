@@ -14,7 +14,6 @@ namespace FileCompare
             InitializeComponent();
         }
 
-        // 왼쪽 버튼 클릭
         private void btnLeftDir_Click(object sender, EventArgs e)
         {
             using (var dlg = new FolderBrowserDialog())
@@ -22,12 +21,11 @@ namespace FileCompare
                 if (dlg.ShowDialog() == DialogResult.OK)
                 {
                     txtLeftDir.Text = dlg.SelectedPath;
-                    UpdateFileLists(); // 목록 갱신 및 비교 호출
+                    UpdateFileLists();
                 }
             }
         }
 
-        // 오른쪽 버튼 클릭
         private void btnRightDir_Click(object sender, EventArgs e)
         {
             using (var dlg = new FolderBrowserDialog())
@@ -35,33 +33,100 @@ namespace FileCompare
                 if (dlg.ShowDialog() == DialogResult.OK)
                 {
                     txtRightDir.Text = dlg.SelectedPath;
-                    UpdateFileLists(); // 목록 갱신 및 비교 호출
+                    UpdateFileLists();
                 }
             }
         }
 
-        /// <summary>
-        /// 파일 목록을 가져오고 비교해서 색상을 입히는 핵심 함수
-        /// </summary>
+        private void btnCopyFromLeft_Click_1(object sender, EventArgs e)
+        {
+            ProcessCopy(lvwLeftDir, txtLeftDir.Text, txtRightDir.Text);
+        }
+
+        private void btnCopyFromRight_Click(object sender, EventArgs e)
+        {
+            ProcessCopy(lvwRightDir, txtRightDir.Text, txtLeftDir.Text);
+        }
+
+        private void ProcessCopy(ListView sourceLv, string sourcePath, string destPath)
+        {
+            if (sourceLv.SelectedItems.Count == 0)
+            {
+                MessageBox.Show("복사할 파일을 선택해주세요.");
+                return;
+            }
+
+            if (!Directory.Exists(sourcePath) || !Directory.Exists(destPath))
+            {
+                MessageBox.Show("양쪽 폴더를 모두 선택해야 복사가 가능합니다.");
+                return;
+            }
+
+            foreach (ListViewItem item in sourceLv.SelectedItems)
+            {
+                string fileName = item.Text;
+                if (string.IsNullOrEmpty(fileName)) continue;
+
+                string srcFull = Path.Combine(sourcePath, fileName);
+                string destFull = Path.Combine(destPath, fileName);
+
+                if (File.Exists(srcFull))
+                {
+                    CopyFileWithConfirmation(srcFull, destFull);
+                }
+            }
+
+            UpdateFileLists();
+            MessageBox.Show("작업이 완료되었습니다.");
+        }
+
+        // [수정] 정말 위험한 상황(옛날 파일로 새 파일 덮어쓰기)에서만 경고창 띄우기
+        private void CopyFileWithConfirmation(string srcPath, string destPath)
+        {
+            try
+            {
+                if (File.Exists(destPath))
+                {
+                    FileInfo srcInfo = new FileInfo(srcPath);
+                    FileInfo destInfo = new FileInfo(destPath);
+
+                    // 원본이 대상보다 '오래된' 경우(회색 -> 빨간색)에만 경고
+                    if (srcInfo.LastWriteTime < destInfo.LastWriteTime)
+                    {
+                        string msg = "!!! 주의: 덮어쓰려는 원본 파일이 대상 파일보다 오래되었습니다 !!!\n\n" +
+                                     $"[원본(옛날)]: {srcInfo.LastWriteTime}\n" +
+                                     $"[대상(최신)]: {destInfo.LastWriteTime}\n\n" +
+                                     "정말로 최신 파일을 옛날 파일로 덮어쓰시겠습니까?";
+
+                        var result = MessageBox.Show(msg, "덮어쓰기 주의", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                        if (result == DialogResult.No) return; // '아니오' 누르면 복사 안 함
+                    }
+                }
+
+                // 그 외의 경우(새 파일로 업데이트, 동일 날짜 등)는 묻지 않고 바로 복사
+                File.Copy(srcPath, destPath, true);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"오류 발생: {ex.Message}");
+            }
+        }
+
         private void UpdateFileLists()
         {
-            // 1. 일단 양쪽 리스트뷰 비우기
             lvwLeftDir.Items.Clear();
             lvwRightDir.Items.Clear();
 
             string leftPath = txtLeftDir.Text;
             string rightPath = txtRightDir.Text;
 
-            // 2. 경로 존재 여부 체크
             bool hasLeft = Directory.Exists(leftPath);
             bool hasRight = Directory.Exists(rightPath);
 
-            // 한쪽이라도 경로가 없으면 한쪽만이라도 뿌려주고 종료
             if (hasLeft && !hasRight) { SimplePopulate(leftPath, lvwLeftDir); return; }
             if (!hasLeft && hasRight) { SimplePopulate(rightPath, lvwRightDir); return; }
             if (!hasLeft && !hasRight) return;
 
-            // 3. 양쪽 다 경로가 있으면 '비교 로직' 가동
             DirectoryInfo leftDir = new DirectoryInfo(leftPath);
             DirectoryInfo rightDir = new DirectoryInfo(rightPath);
 
@@ -81,44 +146,39 @@ namespace FileCompare
 
                     if (fLeft.LastWriteTime == fRight.LastWriteTime)
                     {
-                        AddToList(lvwLeftDir, fLeft, Color.Black); // 동일
+                        AddToList(lvwLeftDir, fLeft, Color.Black);
                         AddToList(lvwRightDir, fRight, Color.Black);
                     }
                     else if (fLeft.LastWriteTime > fRight.LastWriteTime)
                     {
-                        AddToList(lvwLeftDir, fLeft, Color.Red);   // 왼쪽이 최신(New)
-                        AddToList(lvwRightDir, fRight, Color.Gray); // 오른쪽이 과거(Old)
+                        AddToList(lvwLeftDir, fLeft, Color.Red);   // New
+                        AddToList(lvwRightDir, fRight, Color.Gray); // Old
                     }
                     else
                     {
-                        AddToList(lvwLeftDir, fLeft, Color.Gray);  // 왼쪽이 과거
-                        AddToList(lvwRightDir, fRight, Color.Red);  // 오른쪽이 최신
+                        AddToList(lvwLeftDir, fLeft, Color.Gray);  // Old
+                        AddToList(lvwRightDir, fRight, Color.Red);  // New
                     }
                 }
                 else if (inLeft)
                 {
-                    AddToList(lvwLeftDir, leftFiles[fileName], Color.Purple); // 왼쪽 단독
-                    lvwRightDir.Items.Add(new ListViewItem("")); // 줄 맞춤
+                    AddToList(lvwLeftDir, leftFiles[fileName], Color.Purple); // 단독
+                    lvwRightDir.Items.Add(new ListViewItem(""));
                 }
                 else if (inRight)
                 {
-                    lvwLeftDir.Items.Add(new ListViewItem("")); // 줄 맞춤
-                    AddToList(lvwRightDir, rightFiles[fileName], Color.Purple); // 오른쪽 단독
+                    lvwLeftDir.Items.Add(new ListViewItem(""));
+                    AddToList(lvwRightDir, rightFiles[fileName], Color.Purple); // 단독
                 }
             }
         }
 
-        // 한쪽 폴더만 있을 때 단순히 목록만 뿌려주는 함수
         private void SimplePopulate(string path, ListView lv)
         {
             DirectoryInfo dir = new DirectoryInfo(path);
-            foreach (var file in dir.GetFiles())
-            {
-                AddToList(lv, file, Color.Black);
-            }
+            foreach (var file in dir.GetFiles()) { AddToList(lv, file, Color.Black); }
         }
 
-        // 리스트뷰에 아이템을 실제로 넣는 함수 (중복 코드 방지)
         private void AddToList(ListView lv, FileInfo file, Color color)
         {
             ListViewItem item = new ListViewItem(file.Name);
@@ -130,5 +190,7 @@ namespace FileCompare
 
         private void splitContainer1_Panel1_Paint(object sender, PaintEventArgs e) { }
         private void splitContainer1_SplitterMoved(object sender, SplitterEventArgs e) { }
+        private void lvwLeftDir_SelectedIndexChanged(object sender, EventArgs e) { }
+        private void lvwRightDir_SelectedIndexChanged(object sender, EventArgs e) { }
     }
 }
